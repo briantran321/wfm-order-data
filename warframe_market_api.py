@@ -1,10 +1,10 @@
 import requests
 import json
+import pandas as pd
 
 wfm_url = "https://api.warframe.market/v2/orders/recent"
 headers = {
     "Platform" : "pc",
-    "Crossplay" : "true",
     "Language" : "en",
     'content-type' : 'application/json'
 }
@@ -16,6 +16,12 @@ try:
 except requests.exceptions.HTTPError as e:
     print("HTTP error occurred: ", e)
 
-data = response.json()
-print(data)
+response_dict = json.loads(response.text)
+orders = response_dict["data"]
+df = pd.json_normalize(orders)
 
+df = df.drop(columns=[col for col in df.columns if col.startswith("user.")])
+df = df.drop(columns=["id", "perTrade", "visible", "createdAt", "updatedAt", "subtype"])
+
+buy_df = df[df["type"] == "buy"]
+sell_df = df[df["type"] == "sell"]
