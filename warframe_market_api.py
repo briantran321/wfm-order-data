@@ -2,46 +2,47 @@ import requests
 import json
 import pandas as pd
 
-order_url = "https://api.warframe.market/v2/orders/recent"
-item_url = "https://api.warframe.market/v2/items"
-headers = {
-    "Platform" : "pc",
-    "Language" : "en",
-    'content-type' : 'application/json'
-}
 
-order_response = requests.get(order_url, headers=headers)
+def api_call(url, custom_header):
+    try:
+        response = requests.get(url, headers=custom_header)
+        response.raise_for_status()  # Check if the request was successful
+    except requests.exceptions.HTTPError as e:
+        print("HTTP error occurred: ", e)
+    
+    return json.loads(response.text)
 
-try:
-    order_response.raise_for_status()  # Check if the request was successful
-except requests.exceptions.HTTPError as e:
-    print("HTTP error occurred: ", e)
+def normalize_df(response_dict):
+    orders = response_dict["data"]
+    df = pd.json_normalize(orders)
+    return df
 
+def main():
+    order_url = "https://api.warframe.market/v2/orders/recent"
+    item_url = "https://api.warframe.market/v2/items"
+    headers = {
+        "Platform" : "pc",
+        "Language" : "en",
+        'content-type' : 'application/json'
+    }
+    orders = api_call(order_url, headers)
+    items = api_call(item_url, headers)
 
-order_response_dict = json.loads(order_response.text)
-orders = order_response_dict["data"]
-df = pd.json_normalize(orders)
+    orders_df = normalize_df(orders)
+    items_df = normalize_df(items)
 
-df = df.drop(columns=[col for col in df.columns if col.startswith("user.")])
-df = df.drop(columns=["id", "perTrade", "visible", "createdAt", "updatedAt", "subtype"])
+    orders_df["item_name"] = orders_df["itemId"].map(items_df.set_index("id")["i18n.en.name"])
 
-item_response = requests.get(item_url, headers=headers)
-try:
-    item_response.raise_for_status()  # Check if the request was successful
-except requests.exceptions.HTTPError as e:
-    print("HTTP error occurred: ", e)
+    aggregated_df = orders_df.groupby(["type", "item_name"]).agg(
+            quantity=("quantity", "sum"),
+            average_price=("platinum", "mean"),
+            lowest_price=("platinum", "min"),
+            highest_price=("platinum", "max")   
+    ).reset_index()
 
-item_response_dict = json.loads(item_response.text)
-item_list = item_response_dict["data"]
-item_df = pd.json_normalize(item_list)
+    print(aggregated_df.head(n=30))
 
-df["item_name"] = df["itemId"].map(item_df.set_index("id")["i18n.en.name"])
+    return 0
 
-aggregated_df = df.groupby(["type", "item_name"]).agg(
-        quantity=("quantity", "sum"),
-        average_price=("platinum", "mean"),
-        lowest_price=("platinum", "min"),
-        highest_price=("platinum", "max")   
-).reset_index()
-
-print(aggregated_df.head(n=30))
+if __name__ == "__main__":
+    main()
